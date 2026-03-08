@@ -15,10 +15,42 @@ export default function JoinPage() {
   });
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [myParticipations, setMyParticipations] = useState([]);
+
+  const fetchParticipations = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/participants/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setMyParticipations(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRemove = async (participantId) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`/api/participants/${participantId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setSuccess('Successfully removed from event.');
+        fetchParticipations();
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Network error or server is down');
+    }
+  };
 
   useEffect(() => {
     fetch('/api/events/current').then(res => res.json()).then(setEvents);
     fetch('/api/cars').then(res => res.json()).then(setCars);
+    fetchParticipations();
   }, []);
 
   const handleSubmit = async (e) => {
@@ -55,6 +87,7 @@ export default function JoinPage() {
       if (res.ok) {
         setSuccess('Successfully joined the event carpool group!');
         setFormData({...formData, name: '', address: '', car_id: '', drive_priority: 'cannot'});
+        fetchParticipations();
       } else {
         const errorData = await res.json();
         setError(errorData.detail || 'Failed to join event');
@@ -146,6 +179,38 @@ export default function JoinPage() {
               Confirm Carpool Participation
             </button>
           </form>
+        </div>
+      </div>
+
+      <div className="flex-center" style={{ marginTop: '3rem' }}>
+        <div className="glass-panel" style={{ width: '100%', maxWidth: '600px' }}>
+          <h3 className="text-gradient" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            Your Joined Events
+          </h3>
+          {myParticipations.length === 0 ? (
+            <p className="text-muted" style={{ textAlign: 'center' }}>You haven't joined any events yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {myParticipations.map(p => (
+                <div key={p._id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h4 style={{ margin: '0 0 0.5rem 0' }}>{p.event_name}</h4>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      <div>🚗 As: {p.drive_priority === 'cannot' ? 'Passenger' : (p.drive_priority === 'must' ? 'Driver (Must)' : 'Driver/Passenger (Flexible)')}</div>
+                      <div>📍 Pickup: {p.address}</div>
+                    </div>
+                  </div>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => handleRemove(p._id)} 
+                    style={{ color: 'var(--danger)', borderColor: 'rgba(243, 139, 168, 0.3)', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

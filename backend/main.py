@@ -122,7 +122,59 @@ async def join_event(event_id: str, participant: ParticipantCreate, current_user
     
     result = await db.participants.insert_one(participant_dict)
     participant_dict["_id"] = str(result.inserted_id)
+    
+    try:
+        obj_id = ObjectId(event_id)
+    except:
+        obj_id = event_id
+    await db.events.update_one({"_id": obj_id}, {"$set": {"needs_recalc": True}})
+    
     return participant_dict
+
+@app.get("/participants/me")
+async def get_my_participations(current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+    cursor = db.participants.find({"user_id": str(current_user["_id"])})
+    participations = await cursor.to_list(length=100)
+    
+    result = []
+    for p in participations:
+        p["_id"] = str(p["_id"])
+        
+        # Attach basic event details
+        try:
+            event = await db.events.find_one({"_id": ObjectId(p["event_id"])})
+        except:
+            event = await db.events.find_one({"_id": p["event_id"]})
+            
+        if event:
+            p["event_name"] = event.get("name", "Unknown Event")
+            p["destination_address"] = event.get("destination_address", "")
+            p["start_time"] = event.get("start_time", "")
+        else:
+            p["event_name"] = "Unknown Event"
+            
+        result.append(p)
+    return result
+
+@app.delete("/participants/{participant_id}")
+async def remove_participation(participant_id: str, current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+    try:
+        obj_id = ObjectId(participant_id)
+    except:
+        obj_id = participant_id
+        
+    p = await db.participants.find_one({"_id": obj_id, "user_id": str(current_user["_id"])})
+    if not p:
+        raise HTTPException(status_code=404, detail="Participation not found or not authorized")
+        
+    await db.participants.delete_one({"_id": obj_id})
+    try:
+        event_obj_id = ObjectId(p["event_id"])
+    except:
+        event_obj_id = p["event_id"]
+    await db.events.update_one({"_id": event_obj_id}, {"$set": {"needs_recalc": True}})
+    
+    return {"status": "success"}
 
 @app.get("/cars")
 async def get_car_options():
@@ -432,6 +484,12 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
         p_mpg = max(float(p.get("mpg_city") or 25.0), 1.0)
         p_gallons = p_miles / p_mpg
         baseline_emissions += p_gallons * 8.887
+        
+    try:
+        event_obj_id = ObjectId(event_id)
+    except:
+        event_obj_id = event_id
+    await db.events.update_one({"_id": event_obj_id}, {"$set": {"needs_recalc": False}})
         
     return {
         "status": "success", 

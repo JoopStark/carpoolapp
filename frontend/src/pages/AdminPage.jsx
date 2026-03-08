@@ -5,7 +5,7 @@ export default function AdminPage() {
   const [events, setEvents] = useState([]);
   const [calculationResult, setCalculationResult] = useState(null);
   const [formData, setFormData] = useState({
-    name: '', destination_address: '', destination_lat: 40.7128, destination_lng: -74.0060, start_time: ''
+    name: '', destination_address: '', destination_lat: 40.7128, destination_lng: -74.0060, start_date: '', start_time: ''
   });
 
   const fetchEvents = async () => {
@@ -34,13 +34,16 @@ export default function AdminPage() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          ...formData,
-          start_time: new Date(formData.start_time).toISOString()
+          name: formData.name,
+          destination_address: formData.destination_address,
+          destination_lat: formData.destination_lat,
+          destination_lng: formData.destination_lng,
+          start_time: new Date(`${formData.start_date}T${formData.start_time}`).toISOString()
         })
       });
       if (res.ok) {
         fetchEvents();
-        setFormData({ name: '', destination_address: '', destination_lat: 40.7128, destination_lng: -74.0060, start_time: '' });
+        setFormData({ name: '', destination_address: '', destination_lat: 40.7128, destination_lng: -74.0060, start_date: '', start_time: '' });
       }
     } catch (err) {
       console.error(err);
@@ -56,6 +59,7 @@ export default function AdminPage() {
       });
       if (res.ok) {
         setCalculationResult(await res.json());
+        fetchEvents();
       }
     } catch (err) {
       console.error(err);
@@ -81,9 +85,15 @@ export default function AdminPage() {
                 <label>Location / Address</label>
                 <input type="text" className="form-control" required value={formData.destination_address} onChange={e => setFormData({...formData, destination_address: e.target.value})} />
               </div>
-              <div className="form-group">
-                <label>Start Time</label>
-                <input type="datetime-local" className="form-control" required value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
+              <div className="grid-2" style={{ gap: '1rem' }}>
+                <div className="form-group">
+                  <label>Start Date</label>
+                  <input type="date" className="form-control" required value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} />
+                </div>
+                <div className="form-group">
+                  <label>Start Time</label>
+                  <input type="time" className="form-control" required value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
+                </div>
               </div>
               <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>Create Event</button>
             </form>
@@ -103,8 +113,19 @@ export default function AdminPage() {
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><MapPin size={16}/> {ev.destination_address}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Calendar size={16}/> {new Date(ev.start_time).toLocaleDateString()}</span>
                   </div>
-                  <button className="btn btn-secondary" onClick={() => calculateRoute(ev._id)}>
-                    Calculate Optimal Routes
+                  <button 
+                    className={`btn ${ev.needs_recalc !== false ? 'btn-secondary' : ''}`}
+                    disabled={ev.needs_recalc === false}
+                    style={{ 
+                      opacity: ev.needs_recalc !== false ? 1 : 0.5, 
+                      cursor: ev.needs_recalc !== false ? 'pointer' : 'not-allowed',
+                      background: ev.needs_recalc !== false ? 'var(--secondary)' : 'var(--surface-color)',
+                      color: ev.needs_recalc !== false ? '#fff' : 'var(--text-muted)',
+                      border: 'none'
+                    }}
+                    onClick={() => calculateRoute(ev._id)}
+                  >
+                    {ev.needs_recalc !== false ? 'Recalculate Routes' : 'Routes Up to Date'}
                   </button>
                 </div>
               ))

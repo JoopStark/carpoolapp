@@ -22,6 +22,7 @@ class EventBase(BaseModel):
     destination_lng: float
     start_time: datetime
     is_past: bool = False
+    needs_recalc: bool = True
 
 class EventCreate(EventBase):
     pass
