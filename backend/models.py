@@ -30,8 +30,8 @@ class Event(EventBase):
     id: str = Field(alias="_id")
 
 class ParticipantBase(BaseModel):
-    event_id: str
-    user_id: str
+    event_id: Optional[str] = None
+    user_id: Optional[str] = None
     name: str
     address: str
     address_lat: float

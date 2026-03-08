@@ -14,6 +14,7 @@ export default function JoinPage() {
     drive_priority: 'cannot'
   });
   const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetch('/api/events/current').then(res => res.json()).then(setEvents);
@@ -22,7 +23,14 @@ export default function JoinPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSuccess('');
+    setError('');
+    
     const token = localStorage.getItem('token');
+    if (!token) {
+      setError('You must be logged in to join an event.');
+      return;
+    }
     
     // Find selected car to inject mpg and seats
     const selectedCar = cars.find(c => c.id.toString() === formData.car_id);
@@ -47,9 +55,13 @@ export default function JoinPage() {
       if (res.ok) {
         setSuccess('Successfully joined the event carpool group!');
         setFormData({...formData, name: '', address: '', car_id: '', drive_priority: 'cannot'});
+      } else {
+        const errorData = await res.json();
+        setError(errorData.detail || 'Failed to join event');
       }
     } catch (err) {
       console.error(err);
+      setError('Network error or server is down');
     }
   };
 
@@ -59,6 +71,7 @@ export default function JoinPage() {
         <div className="glass-panel" style={{ width: '100%', maxWidth: '600px' }}>
           <h2 className="text-gradient" style={{ textAlign: 'center', marginBottom: '2rem' }}>Join Event Carpool</h2>
           
+          {error && <div style={{ color: 'var(--danger)', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>}
           {success && <div className="badge active" style={{ display: 'block', textAlign: 'center', marginBottom: '2rem' }}>{success}</div>}
 
           <form onSubmit={handleSubmit}>

@@ -113,7 +113,20 @@ export default function AdminPage() {
 
       {calculationResult && (
         <div className="glass-panel" style={{ marginTop: '3rem', borderLeft: '4px solid var(--primary)' }}>
-          <h3 style={{ marginBottom: '1.5rem' }}>Routing Results <span className="badge active">Emissions: {calculationResult.total_emissions_kg} kg CO2</span></h3>
+          <h3 style={{ marginBottom: '1.5rem', display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            Routing Results 
+            <span className="badge active">Optimized: {calculationResult.total_emissions_kg} kg CO2</span>
+            {calculationResult.baseline_emissions_kg && (
+              <>
+                <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                  If Everyone Drove: {calculationResult.baseline_emissions_kg} kg CO2
+                </span>
+                <span className="badge" style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#c4b5fd', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
+                  Savings: {(calculationResult.baseline_emissions_kg - calculationResult.total_emissions_kg).toFixed(2)} kg CO2!
+                </span>
+              </>
+            )}
+          </h3>
           <p className="text-muted" style={{ marginBottom: '1.5rem' }}>
             Total Drivers: <strong>{calculationResult.drivers_assigned}</strong> &nbsp;|&nbsp; 
             Total Participants: <strong>{calculationResult.total_participants}</strong>
