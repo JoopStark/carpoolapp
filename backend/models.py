@@ -43,6 +43,7 @@ class ParticipantBase(BaseModel):
     mpg_highway: float = 0.0
     arrival_buffer_mins: int = 0
     drive_priority: str # 'cannot', 'will', 'must'
+    force_alone: bool = False
 
 class ParticipantCreate(ParticipantBase):
     pass

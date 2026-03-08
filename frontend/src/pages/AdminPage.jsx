@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, MapPin, Clock } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, User, UserMinus } from 'lucide-react';
 
 export default function AdminPage() {
   const [events, setEvents] = useState([]);
   const [calculationResult, setCalculationResult] = useState(null);
+  const [eventParticipants, setEventParticipants] = useState({});
   const [formData, setFormData] = useState({
     name: '', destination_address: '', destination_lat: 40.7128, destination_lng: -74.0060, start_date: '', start_time: ''
   });
@@ -66,6 +67,38 @@ export default function AdminPage() {
     }
   };
 
+  const fetchParticipants = async (eventId) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`/api/events/${eventId}/participants/all`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEventParticipants(prev => ({ ...prev, [eventId]: data }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const toggleIsolate = async (eventId, participantId, newValue) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`/api/participants/${participantId}/force_alone`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ force_alone: newValue })
+      });
+      if (res.ok) {
+        fetchParticipants(eventId);
+        fetchEvents();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="container" style={{ paddingBottom: '5rem' }}>
       <div className="flex-between" style={{ marginBottom: '2rem' }}>
@@ -113,20 +146,80 @@ export default function AdminPage() {
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><MapPin size={16}/> {ev.destination_address}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Calendar size={16}/> {new Date(ev.start_time).toLocaleDateString()}</span>
                   </div>
-                  <button 
-                    className={`btn ${ev.needs_recalc !== false ? 'btn-secondary' : ''}`}
-                    disabled={ev.needs_recalc === false}
-                    style={{ 
-                      opacity: ev.needs_recalc !== false ? 1 : 0.5, 
-                      cursor: ev.needs_recalc !== false ? 'pointer' : 'not-allowed',
-                      background: ev.needs_recalc !== false ? 'var(--secondary)' : 'var(--surface-color)',
-                      color: ev.needs_recalc !== false ? '#fff' : 'var(--text-muted)',
-                      border: 'none'
-                    }}
-                    onClick={() => calculateRoute(ev._id)}
-                  >
-                    {ev.needs_recalc !== false ? 'Recalculate Routes' : 'Routes Up to Date'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button 
+                      className={`btn ${ev.needs_recalc !== false ? 'btn-secondary' : ''}`}
+                      disabled={ev.needs_recalc === false}
+                      style={{ 
+                        opacity: ev.needs_recalc !== false ? 1 : 0.5, 
+                        cursor: ev.needs_recalc !== false ? 'pointer' : 'not-allowed',
+                        background: ev.needs_recalc !== false ? 'var(--secondary)' : 'var(--surface-color)',
+                        color: ev.needs_recalc !== false ? '#fff' : 'var(--text-muted)',
+                        border: 'none',
+                        flex: 1
+                      }}
+                      onClick={() => calculateRoute(ev._id)}
+                    >
+                      {ev.needs_recalc !== false ? 'Recalculate Routes' : 'Routes Up to Date'}
+                    </button>
+                    
+                    <button 
+                      className="btn"
+                      style={{ flex: 1, background: 'var(--surface-color)', color: 'var(--text-main)', border: '1px solid var(--surface-border)' }}
+                      onClick={() => {
+                        if (eventParticipants[ev._id]) {
+                          const newMap = {...eventParticipants};
+                          delete newMap[ev._id];
+                          setEventParticipants(newMap);
+                        } else {
+                          fetchParticipants(ev._id);
+                        }
+                      }}
+                    >
+                      <Users size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }}/> 
+                      {eventParticipants[ev._id] ? 'Hide Participants' : 'Manage Participants'}
+                    </button>
+                  </div>
+                  
+                  {eventParticipants[ev._id] && (
+                    <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--surface-border)' }}>
+                      <h5 style={{ marginBottom: '0.8rem', color: 'var(--text-muted)' }}>Participant Roster</h5>
+                      {eventParticipants[ev._id].length === 0 ? (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No participants yet.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {eventParticipants[ev._id].map(p => (
+                            <div key={p._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', background: 'var(--surface-color)', borderRadius: '6px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>{p.name}</span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.address} | {p.drive_priority}</span>
+                              </div>
+                              <button 
+                                onClick={() => toggleIsolate(ev._id, p._id, !p.force_alone)}
+                                style={{
+                                  background: p.force_alone ? 'rgba(243, 139, 168, 0.15)' : 'transparent',
+                                  color: p.force_alone ? 'var(--danger)' : 'var(--text-muted)',
+                                  border: `1px solid ${p.force_alone ? 'var(--danger)' : 'var(--surface-border)'}`,
+                                  padding: '0.3rem 0.6rem',
+                                  borderRadius: '4px',
+                                  fontSize: '0.8rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="When enabled, this person will implicitly be forced to drive themselves without carpooling."
+                              >
+                                {p.force_alone ? <UserMinus size={14}/> : <User size={14}/>}
+                                {p.force_alone ? 'Solo Mode Active' : 'Group Mode'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))
             )}

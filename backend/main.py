@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from typing import List, Dict, Any, Optional
 from bson import ObjectId
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from database import get_db
 from models import UserCreate, UserInDB, Token, EventCreate, Event, ParticipantCreate, Participant
@@ -22,7 +23,7 @@ app.add_middleware(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db = Depends(get_db)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, Any]:
     import jwt
     from auth import SECRET_KEY, ALGORITHM
     
@@ -33,7 +34,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db = Depends(get
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
+        username: Optional[str] = payload.get("sub")
         if username is None:
             raise credentials_exception
     except jwt.InvalidTokenError:
@@ -45,7 +46,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db = Depends(get
     return user
 
 @app.post("/register", response_model=Token)
-async def register(user: UserCreate, db = Depends(get_db)):
+async def register(user: UserCreate, db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, str]:
     db_user = await db.users.find_one({"username": user.username})
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -64,7 +65,7 @@ async def register(user: UserCreate, db = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db = Depends(get_db)):
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, str]:
     user = await db.users.find_one({"username": form_data.username})
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
@@ -79,13 +80,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db = Depends(g
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/users/me")
-async def read_users_me(current_user: dict = Depends(get_current_user)):
+async def read_users_me(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, str]:
     return {"username": current_user["username"], "role": current_user.get("role", "participant")}
 
 # --- Events Endpoints ---
 
 @app.post("/events", response_model=Event)
-async def create_event(event: EventCreate, current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+async def create_event(event: EventCreate, current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, Any]:
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Not authorized")
     event_dict = event.dict()
@@ -94,7 +95,7 @@ async def create_event(event: EventCreate, current_user: dict = Depends(get_curr
     return event_dict
 
 @app.get("/events/current", response_model=List[Event])
-async def get_current_events(db = Depends(get_db)):
+async def get_current_events(db: AsyncIOMotorDatabase = Depends(get_db)) -> List[Dict[str, Any]]:
     cursor = db.events.find({"is_past": False})
     events = await cursor.to_list(length=100)
     for event in events:
@@ -102,7 +103,7 @@ async def get_current_events(db = Depends(get_db)):
     return events
     
 @app.get("/events/past", response_model=List[Event])
-async def get_past_events(db = Depends(get_db)):
+async def get_past_events(db: AsyncIOMotorDatabase = Depends(get_db)) -> List[Dict[str, Any]]:
     cursor = db.events.find({"is_past": True})
     events = await cursor.to_list(length=100)
     for event in events:
@@ -112,7 +113,7 @@ async def get_past_events(db = Depends(get_db)):
 # --- Participants Endpoints ---
 
 @app.post("/events/{event_id}/participants", response_model=Participant)
-async def join_event(event_id: str, participant: ParticipantCreate, current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+async def join_event(event_id: str, participant: ParticipantCreate, current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, Any]:
     participant_dict = participant.dict()
     participant_dict["event_id"] = event_id
     participant_dict["user_id"] = str(current_user["_id"])
@@ -132,7 +133,7 @@ async def join_event(event_id: str, participant: ParticipantCreate, current_user
     return participant_dict
 
 @app.get("/participants/me")
-async def get_my_participations(current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+async def get_my_participations(current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> List[Dict[str, Any]]:
     cursor = db.participants.find({"user_id": str(current_user["_id"])})
     participations = await cursor.to_list(length=100)
     
@@ -157,7 +158,7 @@ async def get_my_participations(current_user: dict = Depends(get_current_user), 
     return result
 
 @app.delete("/participants/{participant_id}")
-async def remove_participation(participant_id: str, current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+async def remove_participation(participant_id: str, current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, str]:
     try:
         obj_id = ObjectId(participant_id)
     except:
@@ -176,8 +177,42 @@ async def remove_participation(participant_id: str, current_user: dict = Depends
     
     return {"status": "success"}
 
+@app.get("/events/{event_id}/participants/all")
+async def get_event_participants(event_id: str, current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> List[Dict[str, Any]]:
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    cursor = db.participants.find({"event_id": event_id})
+    participants = await cursor.to_list(length=1000)
+    for p in participants:
+         p["_id"] = str(p["_id"])
+    return participants
+
+@app.patch("/participants/{participant_id}/force_alone")
+async def update_force_alone(participant_id: str, force_alone: bool = Body(..., embed=True), current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, str]:
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    try:
+        obj_id = ObjectId(participant_id)
+    except:
+        obj_id = participant_id
+        
+    p = await db.participants.find_one({"_id": obj_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Participant not found")
+        
+    await db.participants.update_one({"_id": obj_id}, {"$set": {"force_alone": force_alone}})
+    
+    try:
+        event_obj_id = ObjectId(p["event_id"])
+    except:
+        event_obj_id = p["event_id"]
+    await db.events.update_one({"_id": event_obj_id}, {"$set": {"needs_recalc": True}})
+    
+    return {"status": "success"}
+
 @app.get("/cars")
-async def get_car_options():
+async def get_car_options() -> List[Dict[str, Any]]:
     # Mock data for car selector
     return [
         {"id": 1, "make": "Toyota", "model": "Prius", "seats": 4, "mpg_city": 54, "mpg_highway": 50},
@@ -190,7 +225,7 @@ async def get_car_options():
 # --- Calculation Logic ---
 
 @app.get("/events/impact")
-async def get_global_impact(db = Depends(get_db)):
+async def get_global_impact(db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, float]:
     """
     Calculates the total kg of CO2 saved across all events.
     """
@@ -266,15 +301,15 @@ async def get_global_impact(db = Depends(get_db)):
         return {"total_saved_kg": 0.0, "trees_planted_equivalent": 0.0}
 
 @app.post("/events/{event_id}/calculate")
-async def calculate_routes(event_id: str, current_user: dict = Depends(get_current_user), db = Depends(get_db)):
+async def calculate_routes(event_id: str, current_user: Dict[str, Any] = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)) -> Dict[str, Any]:
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Not authorized")
         
     cursor = db.participants.find({"event_id": event_id})
     participants = await cursor.to_list(length=1000)
     
-    def haversine(lat1, lon1, lat2, lon2):
-        if lat1 is None or lon1 is None or lat2 is None or lon2 is None: return 9999
+    def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        if lat1 is None or lon1 is None or lat2 is None or lon2 is None: return 9999.0
         R = 3958.8 # Radius of earth in miles
         dLat = math.radians(lat2 - lat1)
         dLon = math.radians(lon2 - lon1)
@@ -282,18 +317,31 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         
     # 1) Separate out the firm requirements
-    must_drivers = [p for p in participants if p.get("drive_priority") == "must" and p.get("seats", 0) > 0]
-    cannot_passengers = [p for p in participants if p.get("drive_priority") == "cannot"]
-    will_drivers = [p for p in participants if p.get("drive_priority") == "will" and p.get("seats", 0) > 0]
+    poolable_participants = [p for p in participants if not p.get("force_alone")]
+    isolated_participants = [p for p in participants if p.get("force_alone")]
+    
+    must_drivers = [p for p in poolable_participants if p.get("drive_priority") == "must" and p.get("seats", 0) > 0]
+    cannot_passengers = [p for p in poolable_participants if p.get("drive_priority") == "cannot"]
+    will_drivers = [p for p in poolable_participants if p.get("drive_priority") == "will" and p.get("seats", 0) > 0]
     
     # 2) 'will' participants without cars are just passengers
-    will_no_car = [p for p in participants if p.get("drive_priority") == "will" and p.get("seats", 0) == 0]
+    will_no_car = [p for p in poolable_participants if p.get("drive_priority") == "will" and p.get("seats", 0) == 0]
     passengers = cannot_passengers + will_no_car
     
     # 3) We want to use as few cars as possible to minimize emissions.
     # We will sort all potential drivers (must + will) by their MPG (highest first) to prioritize green vehicles
     all_potential_drivers = must_drivers + will_drivers
     all_potential_drivers.sort(key=lambda d: d.get("mpg_city", 25), reverse=True)
+    
+    isolated_stuck = []
+    for ip in isolated_participants:
+        if float(ip.get("seats", 0)) > 0:
+            ip["drive_priority"] = "must"
+            ip["seats"] = 1 # Reserve only 1 seat for themselves to prevent passengers
+            all_potential_drivers.append(ip)
+        else:
+            ip["drive_priority"] = "cannot"
+            isolated_stuck.append(ip)
     
     drivers = []
     
@@ -381,6 +429,8 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
             new_drivers.append(p)
         else:
             really_stuck_passengers.append(p)
+            
+    really_stuck_passengers.extend(isolated_stuck)
     drivers.extend(new_drivers)
             
     from datetime import datetime, timedelta
