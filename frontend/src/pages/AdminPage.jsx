@@ -69,26 +69,28 @@ export default function AdminPage() {
       </div>
 
       <div className="grid-2">
-        <div className="glass-panel">
-          <h3>Create Event</h3>
-          <form onSubmit={handleCreateEvent}>
-            <div className="form-group">
-              <label>Event Name</label>
-              <input type="text" className="form-control" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-            </div>
-            <div className="form-group">
-              <label>Location / Address</label>
-              <input type="text" className="form-control" required value={formData.destination_address} onChange={e => setFormData({...formData, destination_address: e.target.value})} />
-            </div>
-            <div className="form-group">
-              <label>Start Time</label>
-              <input type="datetime-local" className="form-control" required value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
-            </div>
-            <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>Create Event</button>
-          </form>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div className="glass-panel">
+            <h3>Create Event</h3>
+            <form onSubmit={handleCreateEvent}>
+              <div className="form-group">
+                <label>Event Name</label>
+                <input type="text" className="form-control" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Location / Address</label>
+                <input type="text" className="form-control" required value={formData.destination_address} onChange={e => setFormData({...formData, destination_address: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Start Time</label>
+                <input type="datetime-local" className="form-control" required value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>Create Event</button>
+            </form>
+          </div>
         </div>
 
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           <h3 style={{ marginBottom: '1.5rem' }}>Current Events</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {events.length === 0 ? (
@@ -109,6 +111,11 @@ export default function AdminPage() {
             )}
           </div>
         </div>
+      </div>
+
+      <div style={{ background: 'rgba(239, 68, 68, 0.1)', borderLeft: '4px solid var(--danger)', padding: '1rem', borderRadius: '4px', marginTop: '2rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--danger)', display: 'block', marginBottom: '0.5rem' }}>⚠️ Liability Warning</strong>
+        By issuing these assignments, you are accepting responsibility for the safety of drivers and passengers. Please ensure you trust everyone involved.
       </div>
 
       {calculationResult && (
@@ -134,11 +141,49 @@ export default function AdminPage() {
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
             {calculationResult.routes.map((rt, i) => (
-              <div key={i} className="route-group">
-                <div className="route-driver">🚗 Driver: {rt.driver} <span className="text-muted" style={{ fontWeight: 400, marginLeft: 'auto' }}>{rt.vehicle}</span></div>
+              <div key={i} className="route-group" style={{ position: 'relative' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    const addresses = [
+                      rt.driver_address,
+                      ...rt.passengers.map(p => p.address),
+                      calculationResult.event_address || ''
+                    ].filter(Boolean).join('; ');
+                    navigator.clipboard.writeText(addresses);
+                    alert('Addresses copied to clipboard!');
+                  }}
+                >
+                  Copy Route
+                </button>
+                <div className="route-driver" style={{ paddingRight: '6rem' }}>🚗 Driver: {rt.driver} <span className="text-muted" style={{ fontWeight: 400, marginLeft: '0.5rem' }}>{rt.vehicle}</span></div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}><MapPin size={12}/> {rt.driver_address}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--primary)' }}><Clock size={12}/> Depart: {rt.driver_start_time}</span>
+                </div>
                 <div className="route-driver" style={{ fontSize: '0.8rem', color: 'var(--secondary)' }}>Emissions: {rt.emissions_kg} kg CO2</div>
                 <div className="route-passengers">
-                  <strong>Pickups:</strong> {rt.passengers.length > 0 ? rt.passengers.join(', ') : 'None'}
+                  <strong>Pickups:</strong>
+                  {rt.passengers.length > 0 ? (
+                    <ul style={{ listStyleType: 'none', padding: 0, margin: '0.5rem 0 0 0' }}>
+                      {rt.passengers.map((p, idx) => (
+                        <li key={idx} style={{ marginBottom: '0.5rem', padding: '0.5rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>👤 {p.name}</span>
+                            <span style={{ color: 'var(--primary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <Clock size={12}/> {p.pickup_time}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.2rem' }}>
+                            <MapPin size={12}/> {p.address}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span style={{ marginLeft: '0.5rem', color: 'var(--text-muted)' }}>None</span>
+                  )}
                 </div>
               </div>
             ))}

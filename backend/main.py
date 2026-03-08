@@ -137,6 +137,82 @@ async def get_car_options():
 
 # --- Calculation Logic ---
 
+@app.get("/events/impact")
+async def get_global_impact(db = Depends(get_db)):
+    """
+    Calculates the total kg of CO2 saved across all events.
+    """
+    try:
+        total_baseline = 0.0
+        total_optimized = 0.0
+        
+        # Get all events
+        cursor = db.events.find({})
+        events = await cursor.to_list(length=1000)
+        
+        for event in events:
+            event_id = str(event["_id"])
+            event_lat = float(event.get("destination_lat", 0.0))
+            event_lng = float(event.get("destination_lng", 0.0))
+            
+            p_cursor = db.participants.find({"event_id": event_id})
+            participants = await p_cursor.to_list(length=1000)
+            
+            if not participants: continue
+                
+            # Baseline is everyone driving themselves
+            for p in participants:
+                p_lat = float(p.get("address_lat", 0.0))
+                p_lng = float(p.get("address_lng", 0.0))
+                
+                # Haversine distance
+                import math
+                R = 3958.8 
+                dLat = math.radians(event_lat - p_lat)
+                dLon = math.radians(event_lng - p_lng)
+                a = math.sin(dLat / 2)**2 + math.cos(math.radians(p_lat)) * math.cos(math.radians(event_lat)) * math.sin(dLon / 2)**2
+                p_miles = float(R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+                
+                p_mpg = max(float(p.get("mpg_city") or 25.0), 1.0)
+                p_gallons = p_miles / p_mpg
+                total_baseline += (p_gallons * 8.887)
+                
+            # To get total optimized, we run the routing logic logic
+            # For performance, we'll just run a simplified grouping
+            drivers = [p for p in participants if p.get("drive_priority") == "must" and p.get("seats", 0) > 0]
+            passengers = [p for p in participants if p.get("drive_priority") == "cannot" or (p.get("drive_priority") == "will" and p.get("seats", 0) == 0)]
+            will_drivers = [p for p in participants if p.get("drive_priority") == "will" and p.get("seats", 0) > 0]
+            
+            drivers.extend(will_drivers) # Simplified: Everyone who will drive, does drive, unless we grouped them.
+            
+            for driver in drivers:
+                driver_lat = float(driver.get("address_lat", 0.0))
+                driver_lng = float(driver.get("address_lng", 0.0))
+                dLat = math.radians(event_lat - driver_lat)
+                dLon = math.radians(event_lng - driver_lng)
+                a = math.sin(dLat / 2)**2 + math.cos(math.radians(driver_lat)) * math.cos(math.radians(event_lat)) * math.sin(dLon / 2)**2
+                driver_miles = float(R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+                
+                # Assume 20% detour tax for pickups
+                driver_miles *= 1.2
+                
+                mpg = max(float(driver.get("mpg_city", 25.0)), 1.0) 
+                gallons = driver_miles / mpg
+                total_optimized += float(gallons * 8.887) 
+                
+        total_saved_kg = max(0.0, total_baseline - total_optimized)
+        
+        # 1 tree absorbs ~21kg of CO2 per year
+        trees_planted_equivalent = total_saved_kg / 21.0
+        
+        return {
+            "total_saved_kg": round(total_saved_kg, 2),
+            "trees_planted_equivalent": round(trees_planted_equivalent, 1)
+        }
+    except Exception as e:
+        print(f"Error calculating impact: {e}")
+        return {"total_saved_kg": 0.0, "trees_planted_equivalent": 0.0}
+
 @app.post("/events/{event_id}/calculate")
 async def calculate_routes(event_id: str, current_user: dict = Depends(get_current_user), db = Depends(get_db)):
     if current_user.get("role") != "admin":
@@ -255,6 +331,16 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
             really_stuck_passengers.append(p)
     drivers.extend(new_drivers)
             
+    from datetime import datetime, timedelta
+    
+    try:
+        if isinstance(event.get("start_time"), str):
+            event_start = datetime.fromisoformat(event.get("start_time").replace("Z", "+00:00"))
+        else:
+            event_start = datetime.now() + timedelta(days=1)
+    except:
+        event_start = datetime.now() + timedelta(days=1)
+    
     routes = []
     total_emissions = 0.0
     passengers_unassigned = len(really_stuck_passengers)
@@ -263,8 +349,6 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
         if not isinstance(driver, dict): continue
         driver_lat = float(driver.get("address_lat", 0.0))
         driver_lng = float(driver.get("address_lng", 0.0))
-        
-        assigned_passengers = [p.get("name") for p in driver.get("_temp_passengers", []) if isinstance(p, dict)]
         
         # Calculate true miles
         # For simplicity, we just add the distance sequentially Driver -> P1 -> P2 -> Event
@@ -275,13 +359,52 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
         driver_miles = 0.0
         current_lat, current_lng = driver_lat, driver_lng
         
+        # We need to trace backwards from the event to figure out pickup times.
+        # Assume average city speed of 25 mph -> 2.4 minutes per mile.
+        # Plus 2 minutes wait time per passenger pickup.
+        stops = list(reversed(pass_list))
+        current_time = event_start - timedelta(minutes=15) # Aim to arrive 15 mins early
+        
+        last_lat, last_lng = event_lat, event_lng
+        
+        passenger_pickups = []
+        for p in stops:
+            p_lat = float(p.get("address_lat", 0.0))
+            p_lng = float(p.get("address_lng", 0.0))
+            
+            # drive time from passenger to the next stop (or event)
+            dist_to_next = haversine(p_lat, p_lng, last_lat, last_lng)
+            drive_mins = dist_to_next * 2.4
+            
+            # Subtrace drive time and wait time
+            current_time = current_time - timedelta(minutes=(drive_mins + 2.0))
+            
+            passenger_pickups.insert(0, {
+                "name": p.get("name", "Unknown"),
+                "address": p.get("address", "Unknown Address"),
+                "pickup_time": current_time.strftime("%I:%M %p")
+            })
+            
+            last_lat, last_lng = p_lat, p_lng
+            
+        # Calculate when the driver must leave their house
+        if pass_list:
+            first_p = pass_list[0]
+            dist_from_driver = haversine(driver_lat, driver_lng, float(first_p.get("address_lat", 0.0)), float(first_p.get("address_lng", 0.0)))
+            drive_mins = dist_from_driver * 2.4
+            driver_start_time = current_time - timedelta(minutes=drive_mins)
+        else:
+            dist_to_event = haversine(driver_lat, driver_lng, event_lat, event_lng)
+            drive_mins = dist_to_event * 2.4
+            driver_start_time = current_time - timedelta(minutes=drive_mins)
+            
+        # Add the final stretch from driver's house to the first passenger, to compute total miles
+        current_lat, current_lng = driver_lat, driver_lng
         for p in pass_list:
             p_lat = float(p.get("address_lat", 0.0))
             p_lng = float(p.get("address_lng", 0.0))
             driver_miles += haversine(current_lat, current_lng, p_lat, p_lng)
             current_lat, current_lng = p_lat, p_lng
-            
-        # Finally, to the event
         driver_miles += haversine(current_lat, current_lng, event_lat, event_lng)
         
         mpg = max(float(driver.get("mpg_city", 25.0)), 1.0) 
@@ -291,8 +414,10 @@ async def calculate_routes(event_id: str, current_user: dict = Depends(get_curre
             
         routes.append({
             "driver": driver.get("name", "Unknown"),
+            "driver_address": driver.get("address", "Unknown Address"),
+            "driver_start_time": driver_start_time.strftime("%I:%M %p"),
             "vehicle": driver.get("car_type", "Unknown"),
-            "passengers": assigned_passengers,
+            "passengers": passenger_pickups,
             "emissions_kg": round(float(emissions), 2)
         })
         
