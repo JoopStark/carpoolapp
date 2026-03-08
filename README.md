@@ -100,3 +100,12 @@ Once started, the app will be accessible at:
 3. Once logged in as an Admin, you can create new events.
 4. Users can join the event via the "Join Event" page, specifying their geographic location, car specifications, and driving preference ("must drive", "will drive", "cannot drive").
 5. The Admin can click **"Recalculate Routes"** on the dashboard to trigger the grouping algorithm and finalize the carpools!
+
+---
+
+## 🧑‍💻 For Developers & Custom Frontends
+
+Because EcoPool is built decoupled with a strict RESTful JSON API, you do not need to use the bundled React web application if you'd prefer to build a mobile app (iOS/Android), a CLI tool, or use a different web framework.
+
+- **[API Documentation (`API_DOCS.md`)](./API_DOCS.md)**: A complete, structured breakdown of every available backend endpoint, its required payloads, HTTP methods, and token requirements.
+- **Environment Variables**: When setting up the backend, refer to the included `.env.example` file (inside the `/backend/` directory) for required secrets like your database URI and JWT hashing keys. Do not commit your actual `.env` file to version control.
